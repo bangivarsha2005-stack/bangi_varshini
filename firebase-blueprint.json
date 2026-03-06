@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and safety settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "displayName": { "type": "string", "description": "Full name" },
+        "email": { "type": "string", "format": "email" },
+        "phoneNumber": { "type": "string" },
+        "emergencyContact": { "type": "string", "description": "Primary emergency contact name" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Guardian": {
+      "title": "Guardian",
+      "description": "Emergency contact for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "UID of the user who added this guardian" },
+        "name": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "relationship": { "type": "string" }
+      },
+      "required": ["userId", "name", "phoneNumber"]
+    },
+    "Alert": {
+      "title": "Alert",
+      "description": "Emergency SOS alert",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "location": {
+          "type": "object",
+          "properties": {
+            "latitude": { "type": "number" },
+            "longitude": { "type": "number" }
+          }
+        },
+        "mapsLink": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "resolved"] }
+      },
+      "required": ["userId", "timestamp", "location"]
+    },
+    "Recording": {
+      "title": "Recording",
+      "description": "Emergency audio recording metadata",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "alertId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "audioUrl": { "type": "string", "description": "URL to the audio file (or base64 if small)" }
+      },
+      "required": ["userId", "alertId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/guardians/{guardianId}": {
+      "schema": "Guardian",
+      "description": "Guardian contacts"
+    },
+    "/alerts/{alertId}": {
+      "schema": "Alert",
+      "description": "SOS alerts"
+    },
+    "/recordings/{recordingId}": {
+      "schema": "Recording",
+      "description": "Emergency recordings"
+    }
+  }
+}

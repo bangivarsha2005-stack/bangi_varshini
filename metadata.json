@@ -1,0 +1,9 @@
+{
+  "name": "WalkWithMe",
+  "description": "A personal safety mobile web app with SOS alerts, live tracking, fake calls, and safety timers.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
