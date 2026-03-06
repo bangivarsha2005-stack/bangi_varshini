@@ -16,7 +16,12 @@ import {
   User as UserIcon,
   Camera,
   Volume2,
-  VolumeX
+  VolumeX,
+  RefreshCw,
+  X,
+  Check,
+  CheckCircle,
+  ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GuardianManager } from './GuardianManager';
@@ -30,6 +35,7 @@ export const Dashboard: React.FC = () => {
   const [showGuardians, setShowGuardians] = useState(false);
   const [showFakeCall, setShowFakeCall] = useState(false);
   const [showTimer, setShowTimer] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [isTracking, setIsTracking] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isAutoRecordEnabled, setIsAutoRecordEnabled] = useState(true);
@@ -39,16 +45,169 @@ export const Dashboard: React.FC = () => {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [newPhone, setNewPhone] = useState('');
+  const [shakeSensitivity, setShakeSensitivity] = useState<'low' | 'medium' | 'high'>('medium');
+  const [showSafetyCheck, setShowSafetyCheck] = useState(false);
+  const [safetyCheckCountdown, setSafetyCheckCountdown] = useState(60);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isSendingTestNotification, setIsSendingTestNotification] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const notificationIntervalRef = useRef<number | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const oscillatorRef = useRef<OscillatorNode | null>(null);
+  const lfoRef = useRef<OscillatorNode | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+
+  const startBuzzer = () => {
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      
+      const ctx = audioContextRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+
+      const osc = ctx.createOscillator();
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+      const gain = ctx.createGain();
+      
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      
+      lfo.type = 'sine';
+      lfo.frequency.setValueAtTime(2, ctx.currentTime);
+      lfoGain.gain.setValueAtTime(440, ctx.currentTime);
+      
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc.frequency);
+      
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.start();
+      lfo.start();
+
+      oscillatorRef.current = osc;
+      lfoRef.current = lfo;
+      gainNodeRef.current = gain;
+    } catch (err) {
+      console.error('Buzzer error:', err);
+    }
+  };
+
+  const stopBuzzer = () => {
+    if (oscillatorRef.current) {
+      try {
+        oscillatorRef.current.stop();
+        oscillatorRef.current.disconnect();
+      } catch (e) {}
+      oscillatorRef.current = null;
+    }
+    if (lfoRef.current) {
+      try {
+        lfoRef.current.stop();
+        lfoRef.current.disconnect();
+      } catch (e) {}
+      lfoRef.current = null;
+    }
+    if (gainNodeRef.current) {
+      try {
+        gainNodeRef.current.disconnect();
+      } catch (e) {}
+      gainNodeRef.current = null;
+    }
+  };
+
+  // Notification permission
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // 5-minute notification interval during walk
+  useEffect(() => {
+    if (isTracking) {
+      const triggerSafetyCheck = async () => {
+        // 1. Show in-app modal
+        setShowSafetyCheck(true);
+        setSafetyCheckCountdown(60);
+
+        // 2. Queue Firebase SMS Notification (Simulated)
+        if (auth.currentUser && userProfile?.phoneNumber) {
+          try {
+            await addDoc(collection(db, 'notifications'), {
+              userId: auth.currentUser.uid,
+              type: 'sms',
+              recipient: userProfile.phoneNumber,
+              message: 'WalkWithMe Safety Check: Are you safe? Please check the app. If no response, guardians will be alerted.',
+              status: 'pending',
+              timestamp: new Date().toISOString()
+            });
+          } catch (err) {
+            console.error('Safety check notification error:', err);
+          }
+        }
+
+        // 3. Browser Notification
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("WalkWithMe: Safety Check", {
+            body: "Are you safe? Please respond in the app within 60 seconds.",
+            icon: "/shield.png"
+          });
+        }
+      };
+
+      notificationIntervalRef.current = window.setInterval(triggerSafetyCheck, 5 * 60 * 1000);
+    } else {
+      if (notificationIntervalRef.current) {
+        clearInterval(notificationIntervalRef.current);
+        notificationIntervalRef.current = null;
+      }
+      setShowSafetyCheck(false);
+    }
+
+    return () => {
+      if (notificationIntervalRef.current) {
+        clearInterval(notificationIntervalRef.current);
+      }
+      stopBuzzer();
+    };
+  }, [isTracking, userProfile]);
+
+  // Safety Check Countdown Logic
+  useEffect(() => {
+    let timer: number;
+    if (showSafetyCheck && safetyCheckCountdown > 0) {
+      timer = window.setInterval(() => {
+        setSafetyCheckCountdown(prev => prev - 1);
+      }, 1000);
+    } else if (showSafetyCheck && safetyCheckCountdown === 0) {
+      // Timeout! Trigger SOS
+      triggerSOS();
+      setShowSafetyCheck(false);
+    }
+
+    return () => clearInterval(timer);
+  }, [showSafetyCheck, safetyCheckCountdown]);
 
   // Fetch User Profile
   useEffect(() => {
     if (!auth.currentUser) return;
     const unsubscribe = onSnapshot(doc(db, 'users', auth.currentUser.uid), (doc) => {
       if (doc.exists()) {
-        setUserProfile(doc.data() as UserProfile);
+        const data = doc.data() as UserProfile;
+        setUserProfile(data);
+        if (data.shakeSensitivity) {
+          setShakeSensitivity(data.shakeSensitivity);
+        }
       }
     });
     return unsubscribe;
@@ -110,9 +269,17 @@ export const Dashboard: React.FC = () => {
         const deltaY = Math.abs(lastY - (y || 0));
         const deltaZ = Math.abs(lastZ - (z || 0));
 
-        if (deltaX + deltaY + deltaZ > 30) {
+        const thresholds = {
+          low: { force: 45, count: 8 },
+          medium: { force: 30, count: 5 },
+          high: { force: 15, count: 3 }
+        };
+
+        const config = thresholds[shakeSensitivity];
+
+        if (deltaX + deltaY + deltaZ > config.force) {
           moveCounter++;
-          if (moveCounter > 5) {
+          if (moveCounter > config.count) {
             triggerSOS();
             moveCounter = 0;
           }
@@ -128,7 +295,7 @@ export const Dashboard: React.FC = () => {
 
     window.addEventListener('devicemotion', handleMotion);
     return () => window.removeEventListener('devicemotion', handleMotion);
-  }, []);
+  }, [shakeSensitivity]);
 
   // Location tracking
   useEffect(() => {
@@ -195,9 +362,53 @@ export const Dashboard: React.FC = () => {
   };
 
   const triggerSOS = async () => {
-    if (isSOSActive || !auth.currentUser) return;
+    if (isSOSActive) {
+      setIsSOSActive(false);
+      stopBuzzer();
+      return;
+    }
+    if (!auth.currentUser) return;
     setIsSOSActive(true);
+    startBuzzer();
     
+    const userPhone = userProfile?.phoneNumber || 'Unknown';
+    
+    const sendFirebaseSmsNotification = async (recipient: string, message: string) => {
+      if (!auth.currentUser) return;
+      try {
+        await addDoc(collection(db, 'notifications'), {
+          userId: auth.currentUser.uid,
+          type: 'sms',
+          recipient,
+          message,
+          status: 'pending',
+          timestamp: new Date().toISOString()
+        });
+      } catch (err) {
+        console.error('Firebase Notification Error:', err);
+      }
+    };
+
+    const handleOfflineAlert = () => {
+      if (guardians.length > 0) {
+        const numbers = guardians.map(g => g.phoneNumber).join(',');
+        const locStr = location ? ` My last location: https://www.google.com/maps?q=${location.lat},${location.lng}` : '';
+        const message = `EMERGENCY ALERT! This is ${userProfile?.displayName || 'me'}. I need help.${locStr}`;
+        
+        // Open SMS app as fallback
+        window.location.href = `sms:${numbers}?body=${encodeURIComponent(message)}`;
+        alert('You are offline. Opening SMS app to notify guardians.');
+      } else {
+        alert('You are offline and have no guardians added. Please find a safe place.');
+      }
+      setIsSOSActive(false);
+    };
+
+    if (!navigator.onLine) {
+      handleOfflineAlert();
+      return;
+    }
+
     // Get current location
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
@@ -208,31 +419,42 @@ export const Dashboard: React.FC = () => {
         try {
           const alertDoc = await addDoc(collection(db, 'alerts'), {
             userId: auth.currentUser?.uid,
+            userPhone,
             timestamp: new Date().toISOString(),
             location: { latitude: lat, longitude: lng },
             mapsLink,
             status: 'active'
           });
 
+          // Trigger Firebase SMS Notifications for each guardian
+          for (const guardian of guardians) {
+            await sendFirebaseSmsNotification(
+              guardian.phoneNumber, 
+              `EMERGENCY ALERT from ${userProfile?.displayName || 'WalkWithMe User'}: I need help! My location: ${mapsLink}`
+            );
+          }
+
           // Start recording if enabled
           if (isAutoRecordEnabled) {
             startRecording(alertDoc.id);
           }
 
-          // In a real app, we'd trigger a cloud function to SMS/Email guardians
-          console.log('SOS Triggered! Alert sent to guardians with location:', mapsLink);
-          alert('SOS ALERT TRIGGERED! Guardians notified with your location.');
+          console.log('Alert Triggered! Alert sent to guardians via Firebase.');
+          // alert('EMERGENCY ALERT TRIGGERED! Firebase is sending SMS notifications to your guardians.');
         } catch (err) {
-          console.error('SOS Error:', err);
+          console.error('Alert Error:', err);
+          handleOfflineAlert();
         }
       },
       (err) => {
         console.error('Location error:', err);
         setIsSOSActive(false);
+        stopBuzzer();
         if (err.code === err.PERMISSION_DENIED) {
-          alert('Location access denied. Please enable location permissions to send SOS alerts.');
+          alert('Location access denied. Please enable location permissions to send alerts.');
         } else {
-          alert('Could not get your location. Please check your GPS settings.');
+          alert('Could not get your location. Opening SMS fallback.');
+          handleOfflineAlert();
         }
       }
     );
@@ -288,6 +510,52 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const handleUpdateProfile = async () => {
+    if (!auth.currentUser || !newPhone) return;
+    setIsSavingProfile(true);
+    try {
+      const { updateDoc } = await import('firebase/firestore');
+      const userRef = doc(db, 'users', auth.currentUser.uid);
+      await updateDoc(userRef, {
+        phoneNumber: newPhone,
+        shakeSensitivity: shakeSensitivity
+      });
+      setShowProfile(false);
+      alert('Profile updated successfully!');
+    } catch (err) {
+      console.error('Profile update error:', err);
+      alert('Failed to update profile.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const sendTestSmsNotification = async () => {
+    if (!auth.currentUser || !userProfile?.phoneNumber) {
+      alert('Please add your phone number first.');
+      setShowProfile(true);
+      return;
+    }
+    
+    setIsSendingTestNotification(true);
+    try {
+      await addDoc(collection(db, 'notifications'), {
+        userId: auth.currentUser.uid,
+        type: 'sms',
+        recipient: userProfile.phoneNumber,
+        message: 'WalkWithMe: This is a test safety notification sent via Firebase.',
+        status: 'pending',
+        timestamp: new Date().toISOString()
+      });
+      alert('Test SMS notification queued in Firebase!');
+    } catch (err) {
+      console.error('Test notification error:', err);
+      alert('Failed to queue notification.');
+    } finally {
+      setIsSendingTestNotification(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
       {/* Header */}
@@ -331,8 +599,30 @@ export const Dashboard: React.FC = () => {
             <p>{locationError}</p>
           </motion.div>
         )}
+
+        {userProfile && !userProfile.phoneNumber && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl flex items-center justify-between gap-3 text-indigo-700 text-sm font-medium"
+          >
+            <div className="flex items-center gap-3">
+              <Phone className="w-5 h-5 flex-shrink-0" />
+              <p>Add your phone number to activate SMS alerts.</p>
+            </div>
+            <button 
+              onClick={() => {
+                setNewPhone('');
+                setShowProfile(true);
+              }}
+              className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl font-bold text-xs"
+            >
+              Add
+            </button>
+          </motion.div>
+        )}
         
-        {/* SOS Button Section */}
+        {/* Alert Button Section */}
         <section className="text-center py-6">
           <motion.button
             whileTap={{ scale: 0.9 }}
@@ -354,7 +644,9 @@ export const Dashboard: React.FC = () => {
               )}
             </AnimatePresence>
             <AlertCircle className="w-20 h-20 text-white" />
-            <span className="text-3xl font-black text-white uppercase tracking-tighter">SOS</span>
+            <span className="text-3xl font-black text-white uppercase tracking-tighter">
+              {isSOSActive ? 'Stop' : 'Alert'}
+            </span>
           </motion.button>
           <p className="mt-6 text-slate-400 font-medium text-sm">
             {isSOSActive ? 'Emergency Alert Active' : 'Press or Shake for Emergency'}
@@ -421,17 +713,36 @@ export const Dashboard: React.FC = () => {
         {/* User Info Card */}
         {userProfile && (
           <div className="bg-white rounded-[32px] p-6 shadow-sm border border-slate-100">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center">
-                <UserIcon className="w-8 h-8 text-slate-400" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-900 text-lg">{userProfile.displayName}</h3>
-                <div className="flex items-center gap-1.5 text-slate-500 text-sm">
-                  <Calendar className="w-4 h-4" />
-                  <span>Joined {new Date(userProfile.createdAt).toLocaleDateString()}</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center">
+                  <UserIcon className="w-8 h-8 text-slate-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-lg">{userProfile.displayName}</h3>
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1.5 text-slate-500 text-xs">
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>Joined {new Date(userProfile.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    {userProfile.phoneNumber && (
+                      <div className="flex items-center gap-1.5 text-indigo-600 text-xs font-bold">
+                        <Phone className="w-3.5 h-3.5" />
+                        <span>{userProfile.phoneNumber}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
+              <button 
+                onClick={() => {
+                  setNewPhone(userProfile.phoneNumber || '');
+                  setShowProfile(true);
+                }}
+                className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                <RefreshCw className="w-5 h-5 text-slate-400" />
+              </button>
             </div>
           </div>
         )}
@@ -523,6 +834,23 @@ export const Dashboard: React.FC = () => {
               active={true}
             />
           </div>
+          
+          <div className="mt-6 pt-6 border-t border-slate-50">
+            <button 
+              onClick={sendTestSmsNotification}
+              disabled={isSendingTestNotification}
+              className="w-full py-3 bg-slate-50 hover:bg-slate-100 rounded-2xl text-indigo-600 text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+            >
+              {isSendingTestNotification ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Volume2 className="w-4 h-4" />
+                  <span>Test Firebase SMS Notification</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </main>
 
@@ -532,6 +860,124 @@ export const Dashboard: React.FC = () => {
         {showFakeCall && <FakeCall onClose={() => setShowFakeCall(false)} />}
         {showTimer && <SafetyTimer onTriggerSOS={triggerSOS} onClose={() => setShowTimer(false)} />}
         {showCamera && <CameraCapture onCapture={handleCaptureSurroundings} onClose={() => setShowCamera(false)} />}
+        
+        {showSafetyCheck && (
+          <div className="fixed inset-0 bg-rose-600 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white w-full max-w-md rounded-[40px] p-8 text-center shadow-2xl"
+            >
+              <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <ShieldAlert className="w-10 h-10 text-rose-600 animate-pulse" />
+              </div>
+              
+              <h2 className="text-3xl font-black text-slate-900 mb-2">Safety Check</h2>
+              <p className="text-slate-500 font-medium mb-8">
+                Are you safe? Please respond. If you don't respond in <span className="text-rose-600 font-bold">{safetyCheckCountdown}s</span>, we will alert your guardians.
+              </p>
+
+              <div className="space-y-4">
+                <button 
+                  onClick={() => setShowSafetyCheck(false)}
+                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-5 rounded-3xl shadow-xl shadow-emerald-200 transition-all flex items-center justify-center gap-3"
+                >
+                  <CheckCircle className="w-6 h-6" />
+                  <span>I'm Safe</span>
+                </button>
+
+                <button 
+                  onClick={() => {
+                    triggerSOS();
+                    setShowSafetyCheck(false);
+                  }}
+                  className="w-full bg-rose-600 hover:bg-rose-700 text-white font-black py-5 rounded-3xl shadow-xl shadow-rose-200 transition-all flex items-center justify-center gap-3"
+                >
+                  <AlertCircle className="w-6 h-6" />
+                  <span>I'm Not Safe</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+        
+        {showProfile && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+            <motion.div 
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              className="bg-white w-full max-w-md rounded-t-[40px] sm:rounded-[40px] p-8 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-2xl font-black text-slate-900">Profile Settings</h2>
+                <button onClick={() => setShowProfile(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                  <X className="w-6 h-6 text-slate-400" />
+                </button>
+              </div>
+              
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">
+                    Mobile Number
+                  </label>
+                  <div className="relative">
+                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <input 
+                      type="tel"
+                      placeholder="+1 234 567 8900"
+                      value={newPhone}
+                      onChange={(e) => setNewPhone(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 pl-12 pr-4 font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                  <p className="mt-2 text-[10px] text-slate-400 font-medium ml-1">
+                    Used for SMS alerts and guardian notifications.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">
+                    Shake Sensitivity
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['low', 'medium', 'high'] as const).map((level) => (
+                      <button
+                        key={level}
+                        onClick={() => setShakeSensitivity(level)}
+                        className={`py-3 rounded-xl font-bold text-xs capitalize transition-all ${
+                          shakeSensitivity === level
+                            ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200'
+                            : 'bg-slate-50 text-slate-400 border border-slate-100 hover:bg-slate-100'
+                        }`}
+                      >
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-[10px] text-slate-400 font-medium ml-1">
+                    Adjust how hard you need to shake to trigger an alert.
+                  </p>
+                </div>
+
+                <button 
+                  onClick={handleUpdateProfile}
+                  disabled={isSavingProfile || !newPhone}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-200 transition-all flex items-center justify-center gap-2"
+                >
+                  {isSavingProfile ? (
+                    <RefreshCw className="w-6 h-6 animate-spin" />
+                  ) : (
+                    <>
+                      <Check className="w-6 h-6" />
+                      <span>Save Profile</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
     </div>
   );

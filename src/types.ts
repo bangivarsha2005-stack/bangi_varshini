@@ -3,6 +3,9 @@ export interface UserProfile {
   displayName: string;
   email: string;
   phoneNumber?: string;
+  shakeSensitivity?: 'low' | 'medium' | 'high';
+  customSOSMessage?: string;
+  trackingInterval?: number;
   createdAt: string;
 }
 

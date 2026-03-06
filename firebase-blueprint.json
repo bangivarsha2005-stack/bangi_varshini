@@ -9,6 +9,9 @@
         "displayName": { "type": "string", "description": "Full name" },
         "email": { "type": "string", "format": "email" },
         "phoneNumber": { "type": "string" },
+        "shakeSensitivity": { "type": "string", "enum": ["low", "medium", "high"] },
+        "customSOSMessage": { "type": "string", "description": "Custom message sent during SOS" },
+        "trackingInterval": { "type": "integer", "description": "Interval in minutes for safety checks during tracking" },
         "emergencyContact": { "type": "string", "description": "Primary emergency contact name" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
@@ -57,6 +60,38 @@
         "audioUrl": { "type": "string", "description": "URL to the audio file (or base64 if small)" }
       },
       "required": ["userId", "alertId", "timestamp"]
+    },
+    "Surroundings": {
+      "title": "Surroundings",
+      "description": "Captured image of surroundings",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "imageData": { "type": "string" },
+        "location": {
+          "type": "object",
+          "properties": {
+            "latitude": { "type": "number" },
+            "longitude": { "type": "number" }
+          }
+        }
+      },
+      "required": ["userId", "timestamp", "imageData"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System notification to be sent via SMS or Push",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["sms", "push"] },
+        "recipient": { "type": "string", "description": "Mobile number or FCM token" },
+        "message": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "sent", "failed"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "recipient", "message", "status", "timestamp"]
     }
   },
   "firestore": {
@@ -75,6 +110,14 @@
     "/recordings/{recordingId}": {
       "schema": "Recording",
       "description": "Emergency recordings"
+    },
+    "/surroundings/{surroundingId}": {
+      "schema": "Surroundings",
+      "description": "Captured surroundings"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Queue for SMS and Push notifications"
     }
   }
 }

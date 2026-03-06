@@ -6,9 +6,11 @@ import { Shield, LogIn } from 'lucide-react';
 
 export const Auth: React.FC<{ onAuthSuccess: () => void }> = ({ onAuthSuccess }) => {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
+    setError(null);
     try {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
@@ -22,11 +24,17 @@ export const Auth: React.FC<{ onAuthSuccess: () => void }> = ({ onAuthSuccess })
           displayName: user.displayName,
           email: user.email,
           createdAt: new Date().toISOString(),
+          shakeSensitivity: 'medium'
         });
       }
       onAuthSuccess();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Auth error:', error);
+      if (error.code === 'auth/unauthorized-domain') {
+        setError('This domain is not authorized in your Firebase project. Please add this URL to your Authorized Domains in the Firebase Console.');
+      } else {
+        setError(error.message || 'An error occurred during sign-in.');
+      }
     } finally {
       setLoading(false);
     }
@@ -41,6 +49,12 @@ export const Auth: React.FC<{ onAuthSuccess: () => void }> = ({ onAuthSuccess })
         <h1 className="text-4xl font-bold text-slate-900 mb-2 tracking-tight">WalkWithMe</h1>
         <p className="text-slate-500 mb-10 text-lg">Your personal safety companion, always by your side.</p>
         
+        {error && (
+          <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl text-rose-600 text-sm font-medium">
+            {error}
+          </div>
+        )}
+
         <button
           onClick={handleGoogleSignIn}
           disabled={loading}
