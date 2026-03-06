@@ -13,12 +13,16 @@ import {
   Activity,
   Share2,
   Calendar,
-  User as UserIcon
+  User as UserIcon,
+  Camera,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GuardianManager } from './GuardianManager';
 import { FakeCall } from './FakeCall';
 import { SafetyTimer } from './SafetyTimer';
+import { CameraCapture } from './CameraCapture';
 import { Guardian, UserProfile } from '../types';
 
 export const Dashboard: React.FC = () => {
@@ -28,6 +32,9 @@ export const Dashboard: React.FC = () => {
   const [showTimer, setShowTimer] = useState(false);
   const [isTracking, setIsTracking] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isAutoRecordEnabled, setIsAutoRecordEnabled] = useState(true);
+  const [showCamera, setShowCamera] = useState(false);
+  const [lastSurroundings, setLastSurroundings] = useState<string | null>(null);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [guardians, setGuardians] = useState<Guardian[]>([]);
@@ -207,8 +214,10 @@ export const Dashboard: React.FC = () => {
             status: 'active'
           });
 
-          // Start recording
-          startRecording(alertDoc.id);
+          // Start recording if enabled
+          if (isAutoRecordEnabled) {
+            startRecording(alertDoc.id);
+          }
 
           // In a real app, we'd trigger a cloud function to SMS/Email guardians
           console.log('SOS Triggered! Alert sent to guardians with location:', mapsLink);
@@ -259,6 +268,23 @@ export const Dashboard: React.FC = () => {
       // Fallback: copy to clipboard
       navigator.clipboard.writeText(link);
       alert('Location link copied to clipboard!');
+    }
+  };
+
+  const handleCaptureSurroundings = async (imageData: string) => {
+    setLastSurroundings(imageData);
+    if (auth.currentUser) {
+      try {
+        await addDoc(collection(db, 'surroundings'), {
+          userId: auth.currentUser.uid,
+          timestamp: new Date().toISOString(),
+          imageData: imageData.substring(0, 100000), // Real app would use Storage
+          location: location ? { latitude: location.lat, longitude: location.lng } : null
+        });
+        alert('Surroundings captured and synced to cloud.');
+      } catch (err) {
+        console.error('Capture sync error:', err);
+      }
     }
   };
 
@@ -350,8 +376,21 @@ export const Dashboard: React.FC = () => {
             onClick={() => setShowTimer(true)}
           />
           <ActionButton 
+            icon={<Camera className="w-7 h-7" />}
+            label="Surroundings"
+            color="bg-slate-800"
+            onClick={() => setShowCamera(true)}
+          />
+          <ActionButton 
+            icon={isAutoRecordEnabled ? <Volume2 className="w-7 h-7" /> : <VolumeX className="w-7 h-7" />}
+            label={isAutoRecordEnabled ? "Auto-Record ON" : "Auto-Record OFF"}
+            color={isAutoRecordEnabled ? "bg-emerald-500" : "bg-slate-400"}
+            onClick={() => setIsAutoRecordEnabled(!isAutoRecordEnabled)}
+            active={isAutoRecordEnabled}
+          />
+          <ActionButton 
             icon={<MapPin className="w-7 h-7" />}
-            label={isTracking ? "Stop Tracking" : "Live Tracking"}
+            label={isTracking ? "Finish Walking" : "Start Walking"}
             color={isTracking ? "bg-emerald-600" : "bg-emerald-500"}
             onClick={() => setIsTracking(!isTracking)}
             active={isTracking}
@@ -359,10 +398,25 @@ export const Dashboard: React.FC = () => {
           <ActionButton 
             icon={<Share2 className="w-7 h-7" />}
             label="Share Location"
-            color="bg-slate-800"
+            color="bg-indigo-600"
             onClick={handleShareLocation}
           />
         </div>
+
+        {/* Surroundings Card */}
+        {lastSurroundings && (
+          <div className="bg-white rounded-[32px] p-2 shadow-sm border border-slate-100 overflow-hidden">
+            <div className="p-4 flex items-center justify-between">
+              <h3 className="font-bold text-slate-900">Last Surroundings</h3>
+              <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                Captured
+              </span>
+            </div>
+            <div className="w-full aspect-video bg-slate-100 rounded-[24px] overflow-hidden">
+              <img src={lastSurroundings} alt="Last Surroundings" className="w-full h-full object-cover" />
+            </div>
+          </div>
+        )}
 
         {/* User Info Card */}
         {userProfile && (
@@ -477,6 +531,7 @@ export const Dashboard: React.FC = () => {
         {showGuardians && <GuardianManager onClose={() => setShowGuardians(false)} />}
         {showFakeCall && <FakeCall onClose={() => setShowFakeCall(false)} />}
         {showTimer && <SafetyTimer onTriggerSOS={triggerSOS} onClose={() => setShowTimer(false)} />}
+        {showCamera && <CameraCapture onCapture={handleCaptureSurroundings} onClose={() => setShowCamera(false)} />}
       </AnimatePresence>
     </div>
   );
