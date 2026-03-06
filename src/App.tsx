@@ -3,6 +3,7 @@ import { auth } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { Auth } from './components/Auth';
 import { Dashboard } from './components/Dashboard';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Shield } from 'lucide-react';
 
 export default function App() {
@@ -29,12 +30,14 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans selection:bg-emerald-100 selection:text-emerald-900">
-      {!user ? (
-        <Auth onAuthSuccess={() => {}} />
-      ) : (
-        <Dashboard />
-      )}
-    </div>
+    <ErrorBoundary>
+      <div className="min-h-screen bg-slate-50 font-sans selection:bg-emerald-100 selection:text-emerald-900">
+        {!user ? (
+          <Auth onAuthSuccess={() => {}} />
+        ) : (
+          <Dashboard />
+        )}
+      </div>
+    </ErrorBoundary>
   );
 }
